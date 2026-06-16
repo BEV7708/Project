@@ -33,7 +33,6 @@ services:
       - NB_UID=1000
       - NB_GID=100
       
-    # ИСПРАВЛЕНО: добавлен --ip=0.0.0.0
     command: >
       start-notebook.sh 
       --ip=0.0.0.0
@@ -56,5 +55,23 @@ services:
           cpus: '0.5'
           memory: 1G
 
+  sqlite:
+    image: nouchka/sqlite3:latest
+    container_name: sqlite_db
+    volumes:
+      - ./sqlite_data:/root/db
+    environment:
+      - SQLITE_DATABASE=app.db
+    ports:
+      - "8000:8000"
+    command: sqlite3 /root/db/app.db
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
 volumes:
   jupyter_data:
+  sqlite_data:

@@ -1,0 +1,6 @@
+names:
+- license_plate
+nc: 1
+path: /home/jovyan/work/data
+train: train/train/images
+val: val/val/images

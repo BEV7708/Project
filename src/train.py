@@ -22,7 +22,7 @@ sys.path.append(str(Path(__file__).parent))
 
 from src.dataset import LicensePlateDataset, get_transform, collate_fn
 from src.models import create_faster_rcnn, create_yolo_model, create_rtdetr_model
-from src.trainer import train_faster_rcnn_epoch, validate_faster_rcnn
+from src.trainer import train_faster_rcnn_epoch, validate_faster_rcnn, train_faster_rcnn_full
 from src.metrics import compute_metrics, analyze_errors, plot_results
 from src.utils import set_seed, setup_logging, save_checkpoint, load_checkpoint
 from experiments.experiment_tracker import ExperimentTracker
@@ -221,6 +221,16 @@ def train_model(model_name: str, config: Dict, args: argparse.Namespace):
             'recall': results.get('metrics/recall', 0)
         })
         
+        # Сохраняем результаты для сравнения
+        results_dict = {
+            'mAP50': results.get('metrics/mAP50', 0),
+            'mAP50_95': results.get('metrics/mAP50-95', 0),
+            'precision': results.get('metrics/precision', 0),
+            'recall': results.get('metrics/recall', 0),
+            'train_loss': results.get('train_loss', 0),
+            'val_loss': results.get('val_loss', 0)
+        }
+        
     elif model_name == 'rtdetr':
         # RT-DETR модель
         model = create_rtdetr_model()
@@ -252,6 +262,14 @@ def train_model(model_name: str, config: Dict, args: argparse.Namespace):
             'mAP50': results.get('metrics/mAP50', 0),
             'mAP50_95': results.get('metrics/mAP50-95', 0),
         })
+        
+        # Сохраняем результаты для сравнения
+        results_dict = {
+            'mAP50': results.get('metrics/mAP50', 0),
+            'mAP50_95': results.get('metrics/mAP50-95', 0),
+            'train_loss': results.get('train_loss', 0),
+            'val_loss': results.get('val_loss', 0)
+        }
         
     elif model_name == 'faster_rcnn':
         # Faster R-CNN модель
@@ -301,58 +319,44 @@ def train_model(model_name: str, config: Dict, args: argparse.Namespace):
             optimizer, T_max=args.epochs
         )
         
-        # Обучение
-        best_val_loss = float('inf')
-        patience_counter = 0
-        history = {'train_loss': [], 'val_loss': [], 'lr': []}
+        logger.info("Запуск полного обучения Faster R-CNN...")
         
-        for epoch in range(args.epochs):
-            logger.info(f"Epoch {epoch+1}/{args.epochs}")
-            
-            # Обучение
-            train_loss = train_faster_rcnn_epoch(
-                model, train_loader, optimizer, device, epoch
-            )
-            
-            # Валидация
-            val_loss = validate_faster_rcnn(model, val_loader, device)
-            
-            # Сохраняем историю
-            history['train_loss'].append(train_loss)
-            history['val_loss'].append(val_loss)
-            history['lr'].append(scheduler.get_last_lr()[0])
-            
-            logger.info(f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
-            
-            # Сохраняем лучшую модель
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                save_path = Path(args.save_dir) / 'faster_rcnn' / f"{args.experiment_name or 'best'}.pth"
-                save_path.parent.mkdir(parents=True, exist_ok=True)
-                save_checkpoint(model, optimizer, scheduler, epoch, val_loss, save_path)
-                logger.info(f"Лучшая модель сохранена: {save_path}")
-                patience_counter = 0
-            else:
-                patience_counter += 1
-                if patience_counter >= args.patience:
-                    logger.info(f"Early stopping на эпохе {epoch+1}")
-                    break
-            
-            scheduler.step()
+        model, history = train_faster_rcnn_full(
+            model=model,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            epochs=args.epochs,
+            device=device,
+            save_dir=args.save_dir,
+            experiment_name=args.experiment_name or 'faster_rcnn'
+        )
         
-        # Сохраняем историю
+        # Получаем лучший loss
+        best_val_loss = min(history['val_loss']) if history['val_loss'] else float('inf')
+        
+        # Сохраняем метрики в трекер
         tracker.log_metrics({
             'train_loss': history['train_loss'][-1] if history['train_loss'] else 0,
             'val_loss': history['val_loss'][-1] if history['val_loss'] else 0,
-            'best_val_loss': best_val_loss
+            'best_val_loss': best_val_loss,
+            'total_epochs': len(history['train_loss'])
         })
         
-        results = {'history': history, 'best_val_loss': best_val_loss}
+        # Сохраняем результаты для сравнения
+        results_dict = {
+            'best_val_loss': best_val_loss,
+            'train_loss': history['train_loss'][-1] if history['train_loss'] else 0,
+            'val_loss': history['val_loss'][-1] if history['val_loss'] else 0,
+            'total_epochs': len(history['train_loss']),
+            'history': history
+        }
     
     # Сохраняем артефакты
     tracker.save_artifacts()
     
-    return results
+    return results_dict
 
 
 def main():
@@ -402,33 +406,71 @@ def main():
     all_results = {}
     for model_name in models:
         try:
+            logger.info(f"Начинаем обучение: {model_name}")
+            
             results = train_model(model_name, config, args)
             all_results[model_name] = results
-            logger.info(f"{model_name} обучена успешно")
+            logger.info(f"Модель {model_name} обучена успешно")
+            
         except Exception as e:
             logger.error(f"Ошибка при обучении {model_name}: {e}")
+            import traceback
+            traceback.print_exc()
             if args.debug:
                 raise
             continue
     
     # Сравнительный анализ
     if len(all_results) > 1:
-        logger.info("Сравнительный анализ моделей")
+        logger.info("СРАВНИТЕЛЬНЫЙ АНАЛИЗ МОДЕЛЕЙ")
         
         comparison = []
         for model_name, results in all_results.items():
-            comparison.append({
+            # Извлекаем метрики в едином формате
+            row = {
                 'model': model_name,
-                'val_loss': results.get('best_val_loss', results.get('val_loss', 0)),
-                'mAP50': results.get('mAP50', results.get('metrics/mAP50', 0)),
-                'mAP50_95': results.get('mAP50_95', results.get('metrics/mAP50-95', 0))
-            })
+                'mAP50': results.get('mAP50', 0),
+                'mAP50_95': results.get('mAP50_95', 0),
+                'precision': results.get('precision', 0),
+                'recall': results.get('recall', 0),
+                'val_loss': results.get('val_loss', results.get('best_val_loss', 0)),
+                'train_loss': results.get('train_loss', 0)
+            }
+            comparison.append(row)
         
+        # Сортируем по mAP50 (если есть)
         comparison.sort(key=lambda x: x.get('mAP50', 0), reverse=True)
         
-        logger.info("Рейтинг моделей по mAP@0.5:")
+        # Выводим таблицу
+        logger.info("Рейтинг моделей:")
+        logger.info("-------------------------------------------------------------------------------")
+        logger.info("{:<3} {:<15} {:<12} {:<15} {:<12} {:<10}".format(
+            '#', 'Модель', 'mAP@0.5', 'mAP@0.5:0.95', 'Precision', 'Recall'))
+        logger.info("-------------------------------------------------------------------------------")
+        
         for i, item in enumerate(comparison, 1):
-            logger.info(f"{i}. {item['model']}: mAP@0.5={item['mAP50']:.4f}")
+            logger.info("{:<3} {:<15} {:<12.4f} {:<15.4f} {:<12.4f} {:<10.4f}".format(
+                i, item['model'], item['mAP50'], item['mAP50_95'], 
+                item['precision'], item['recall']))
+        
+        logger.info("-------------------------------------------------------------------------------")
+        
+        # Находим лучшую модель
+        best_model = comparison[0]
+        logger.info(f"Лучшая модель: {best_model['model']}")
+        logger.info(f"  mAP@0.5: {best_model['mAP50']:.4f}")
+        logger.info(f"  mAP@0.5:0.95: {best_model['mAP50_95']:.4f}")
+        
+        # Сохраняем сравнение в файл
+        try:
+            import pandas as pd
+            df = pd.DataFrame(comparison)
+            output_dir = Path('outputs')
+            output_dir.mkdir(exist_ok=True)
+            df.to_csv(output_dir / 'model_comparison.csv', index=False)
+            logger.info(f"Таблица сравнения сохранена: {output_dir / 'model_comparison.csv'}")
+        except ImportError:
+            logger.warning("pandas не установлен, таблица не сохранена")
     
     logger.info(f"Эксперимент завершен. Результаты сохранены в: {args.save_dir}")
     

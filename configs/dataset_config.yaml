@@ -1,6 +1,7 @@
 names:
 - license_plate
 nc: 1
-path: /home/jovyan/work/data
-train: train/train/images
-val: val/val/images
+path: /home/jovyan/work/data/data
+train: train/images
+val: val/images
+test: test/images

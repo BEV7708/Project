@@ -1,0 +1,45 @@
+echo "# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+
+# Data
+data/data/
+data/*.zip
+*.cache
+
+# Models
+*.pt
+*.pth
+*.onnx
+*.engine
+models/*.pt
+models/*.pth
+
+# Databases
+sqlite_data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Checkpoints
+**/.ipynb_checkpoints/
+
+# Large files
+notebooks/rtdetr-l.pt
+notebooks/*.pt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+training.log
+
+# Outputs
+outputs/
+experiments/
+" > .gitignore

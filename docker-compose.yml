@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   jupyter:
-    image: jupyter/datascience-notebook:latest
+    image: quay.io/jupyter/datascience-notebook:82d322f00937
     container_name: ml_notebook
     ports:
       - "8888:8888"
@@ -45,7 +45,6 @@ services:
     restart: unless-stopped
     user: root
     
-    # Лимиты ресурсов
     deploy:
       resources:
         limits:
@@ -59,7 +58,8 @@ services:
     image: nouchka/sqlite3:latest
     container_name: sqlite_db
     volumes:
-      - ./sqlite_data:/root/db
+      # Изменено: теперь БД будет в ./data/sqlite_data
+      - ./data/sqlite_data:/root/db
     environment:
       - SQLITE_DATABASE=app.db
     ports:
@@ -74,4 +74,4 @@ services:
 
 volumes:
   jupyter_data:
-  sqlite_data:
+  models:

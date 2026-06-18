@@ -1,14 +1,14 @@
-import os
+﻿import os
 import sys
+from pathlib import Path
+from typing import Dict, Any, Optional
+from datetime import datetime
 import argparse
 import yaml
 import json
 import time
 import random
 import logging
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, Any, Optional
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -17,155 +17,95 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-# Добавляем пути для импорта
-sys.path.append(str(Path(__file__).parent))
+# обавляем пути
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / 'data' / 'tracker'))
 
 from src.dataset import LicensePlateDataset, get_transform, collate_fn
 from src.models import create_faster_rcnn, create_yolo_model, create_rtdetr_model
 from src.trainer import train_faster_rcnn_epoch, validate_faster_rcnn, train_faster_rcnn_full
-from src.metrics import compute_metrics, analyze_errors, plot_results
+from src.metrics import compute_metrics, analyze_errors, plot_training_history, plot_comparison, plot_error_analysis
 from src.utils import set_seed, setup_logging, save_checkpoint, load_checkpoint
-from experiments.experiment_tracker import ExperimentTracker
+from experiment_tracker import ExperimentTracker
 
-# Настройка логирования
 logger = setup_logging()
 
-
 def parse_args():
-    """Парсинг аргументов командной строки"""
-    parser = argparse.ArgumentParser(description='Обучение моделей детекции номерных знаков')
-    
-    # Основные параметры
+    parser = argparse.ArgumentParser(description='бучение моделей детекции номерных знаков')
     parser.add_argument('--model', type=str, required=True,
                         choices=['yolo_n', 'yolo_s', 'yolo_m', 'yolo_l', 'yolo_x', 
                                 'rtdetr', 'faster_rcnn', 'all'],
-                        help='Модель для обучения или all для всех')
-    parser.add_argument('--config', type=str, 
-                        default='configs/dataset_config.yaml',
-                        help='Путь к конфигу датасета')
-    parser.add_argument('--data_path', type=str, default=None,
-                        help='Путь к данным (переопределяет config)')
-    
-    # Параметры обучения (фиксированные для всех моделей)
-    parser.add_argument('--epochs', type=int, default=30,
-                        help='Количество эпох')
-    parser.add_argument('--batch_size', type=int, default=16,
-                        help='Размер батча')
-    parser.add_argument('--lr', type=float, default=0.001,
-                        help='Начальная скорость обучения')
-    parser.add_argument('--weight_decay', type=float, default=0.0005,
-                        help='Weight decay')
-    parser.add_argument('--patience', type=int, default=10,
-                        help='Early stopping patience')
-    
-    # Устройство
-    parser.add_argument('--device', type=str, default=None,
-                        choices=['cpu', 'cuda', 'mps'],
-                        help='Устройство для обучения (автоопределение если None)')
-    parser.add_argument('--num_workers', type=int, default=None,
-                        help='Количество воркеров для DataLoader')
-    
-    # Дополнительно
-    parser.add_argument('--seed', type=int, default=42,
-                        help='Seed для воспроизводимости')
-    parser.add_argument('--resume', type=str, default=None,
-                        help='Путь к чекпоинту для восстановления')
-    parser.add_argument('--save_dir', type=str, default='models',
-                        help='Директория для сохранения моделей')
-    parser.add_argument('--experiment_name', type=str, default=None,
-                        help='Имя эксперимента')
-    parser.add_argument('--debug', action='store_true',
-                        help='Debug режим (меньше данных)')
-    
+                        help='одель для обучения или all для всех')
+    parser.add_argument('--config', type=str, default='configs/dataset_config.yaml')
+    parser.add_argument('--data_path', type=str, default=None)
+    parser.add_argument('--epochs', type=int, default=30)
+    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--lr', type=float, default=0.001)
+    parser.add_argument('--weight_decay', type=float, default=0.0005)
+    parser.add_argument('--patience', type=int, default=10)
+    parser.add_argument('--device', type=str, default=None, choices=['cpu', 'cuda', 'mps'])
+    parser.add_argument('--num_workers', type=int, default=None)
+    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--resume', type=str, default=None, help='уть к чекпоинту для возобновления')
+    parser.add_argument('--save_dir', type=str, default='models')
+    parser.add_argument('--experiment_name', type=str, default=None)
+    parser.add_argument('--debug', action='store_true')
     return parser.parse_args()
 
-
 def get_device(device_arg: Optional[str]) -> torch.device:
-    """Определение устройства"""
     if device_arg:
         return torch.device(device_arg)
-    
     if torch.cuda.is_available():
         device = torch.device('cuda')
-        logger.info(f"Используется GPU: {torch.cuda.get_device_name(0)}")
+        logger.info(f"спользуется GPU: {torch.cuda.get_device_name(0)}")
     elif torch.backends.mps.is_available():
         device = torch.device('mps')
-        logger.info("Используется MPS (Apple Silicon)")
+        logger.info("спользуется MPS (Apple Silicon)")
     else:
         device = torch.device('cpu')
-        logger.info("Используется CPU (рекомендуется GPU)")
-    
+        logger.info("спользуется CPU")
     return device
 
-
 def fix_yaml_paths(config_path: Path) -> Dict:
-    """Исправляет пути в YAML конфиге"""
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
-    
-    # Убираем ведущие слеши
     for key in ['train', 'val', 'test']:
         if key in config and config[key].startswith('/'):
             config[key] = config[key][1:]
-    
-    # Добавляем path если нет
     if 'path' not in config:
         config['path'] = str(config_path.parent.parent / 'data' / 'data')
-    
     return config
 
-
 def validate_dataset(config: Dict) -> bool:
-    """Проверка структуры датасета"""
     base_path = Path(config.get('path', ''))
-    required = ['train', 'val', 'test']
-    
-    for split in required:
+    for split in ['train', 'val', 'test']:
         img_path = base_path / config.get(split, f'{split}/images')
-        label_path = base_path / config.get(split, f'{split}/labels').replace('images', 'labels')
-        
         if not img_path.exists():
-            logger.error(f"Папка не найдена: {img_path}")
+            logger.error(f"апка не найдена: {img_path}")
             return False
-        
         images = list(img_path.glob('*.jpg')) + list(img_path.glob('*.png'))
         if len(images) == 0:
-            logger.error(f"Нет изображений в {img_path}")
+            logger.error(f"ет изображений в {img_path}")
             return False
-        
         logger.info(f"{split}: {len(images)} изображений")
-        
-        # Проверяем наличие разметки
-        if split != 'test':
-            labels = list(label_path.glob('*.txt'))
-            logger.info(f"{split} labels: {len(labels)} файлов")
-    
     return True
 
-
 def get_num_workers(device: torch.device, num_workers_arg: Optional[int]) -> int:
-    """Определение количества воркеров"""
     if num_workers_arg is not None:
         return num_workers_arg
-    
     if device.type == 'cuda':
         return 4
     elif device.type == 'mps':
         return 2
-    else:
-        return 0
-
+    return 0
 
 def train_model(model_name: str, config: Dict, args: argparse.Namespace):
-    """Обучение выбранной модели"""
-    
-    # Создаем трекер экспериментов
     tracker = ExperimentTracker(
         experiment_name=args.experiment_name or f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
         save_dir=args.save_dir
     )
     
-    # Сохраняем параметры эксперимента
     params = {
         'model': model_name,
         'epochs': args.epochs,
@@ -177,40 +117,49 @@ def train_model(model_name: str, config: Dict, args: argparse.Namespace):
         'seed': args.seed,
         'config': str(args.config),
         'data_path': str(args.data_path) if args.data_path else config.get('path', ''),
-        'timestamp': datetime.now().isoformat()
+        'timestamp': datetime.now().isoformat(),
+        'resume': args.resume if args.resume else None
     }
     tracker.log_params(params)
     
-    logger.info(f"Обучение модели: {model_name}")
-    logger.info(f"Параметры: эпох={args.epochs}, батч={args.batch_size}, lr={args.lr}")
+    logger.info(f"бучение модели: {model_name}")
+    logger.info(f"араметры: эпох={args.epochs}, батч={args.batch_size}, lr={args.lr}")
+    if args.resume:
+        logger.info(f"озобновление с: {args.resume}")
+    
+    # Сохраняем конфиг во временный файл
+    temp_config_path = Path(args.save_dir) / 'temp_dataset_config.yaml'
+    with open(temp_config_path, 'w') as f:
+        yaml.dump(config, f, default_flow_style=False)
     
     if model_name.startswith('yolo_'):
-        # YOLO модель
         size = model_name.split('_')[1]
-        model_path = f"yolov8{size}.pt"
-        
         model = create_yolo_model(size)
         
-        save_path = Path(args.save_dir) / f"yolo_{args.experiment_name or model_name}"
-        save_path.mkdir(parents=True, exist_ok=True)
+        # одготовка параметров для train
+        train_kwargs = {
+            'data': str(temp_config_path),
+            'epochs': args.epochs,
+            'imgsz': 640,
+            'batch': args.batch_size,
+            'device': args.device.type if hasattr(args.device, 'type') else 'cpu',
+            'workers': get_num_workers(args.device, args.num_workers),
+            'patience': args.patience,
+            'optimizer': 'AdamW',
+            'lr0': args.lr,
+            'weight_decay': args.weight_decay,
+            'cos_lr': True,
+            'pretrained': True,
+            'save_period': 2,
+            'project': str(Path(args.save_dir) / 'yolo'),
+            'name': f"{model_name}_{args.experiment_name or 'exp'}"
+        }
         
-        results = model.train(
-            data=config,
-            epochs=args.epochs,
-            imgsz=640,
-            batch=args.batch_size,
-            device=args.device.type if hasattr(args.device, 'type') else 'cpu',
-            workers=get_num_workers(args.device, args.num_workers),
-            patience=args.patience,
-            optimizer='AdamW',
-            lr0=args.lr,
-            weight_decay=args.weight_decay,
-            cos_lr=True,
-            pretrained=True,
-            save_period=2,
-            project=str(Path(args.save_dir) / 'yolo'),
-            name=f"{model_name}_{args.experiment_name or 'exp'}"
-        )
+        # сли есть resume - добавляем
+        if args.resume:
+            train_kwargs['resume'] = args.resume
+            
+        results = model.train(**train_kwargs)
         
         tracker.log_metrics({
             'train_loss': results.get('train_loss', 0),
@@ -221,8 +170,7 @@ def train_model(model_name: str, config: Dict, args: argparse.Namespace):
             'recall': results.get('metrics/recall', 0)
         })
         
-        # Сохраняем результаты для сравнения
-        results_dict = {
+        return {
             'mAP50': results.get('metrics/mAP50', 0),
             'mAP50_95': results.get('metrics/mAP50-95', 0),
             'precision': results.get('metrics/precision', 0),
@@ -230,19 +178,15 @@ def train_model(model_name: str, config: Dict, args: argparse.Namespace):
             'train_loss': results.get('train_loss', 0),
             'val_loss': results.get('val_loss', 0)
         }
-        
+    
     elif model_name == 'rtdetr':
-        # RT-DETR модель
         model = create_rtdetr_model()
         
-        save_path = Path(args.save_dir) / f"rtdetr_{args.experiment_name or model_name}"
-        save_path.mkdir(parents=True, exist_ok=True)
-        
         results = model.train(
-            data=config,
+            data=str(temp_config_path),
             epochs=args.epochs,
             imgsz=640,
-            batch=args.batch_size,
+            batch=8,
             device=args.device.type if hasattr(args.device, 'type') else 'cpu',
             workers=get_num_workers(args.device, args.num_workers),
             patience=args.patience,
@@ -263,20 +207,17 @@ def train_model(model_name: str, config: Dict, args: argparse.Namespace):
             'mAP50_95': results.get('metrics/mAP50-95', 0),
         })
         
-        # Сохраняем результаты для сравнения
-        results_dict = {
+        return {
             'mAP50': results.get('metrics/mAP50', 0),
             'mAP50_95': results.get('metrics/mAP50-95', 0),
             'train_loss': results.get('train_loss', 0),
             'val_loss': results.get('val_loss', 0)
         }
-        
+    
     elif model_name == 'faster_rcnn':
-        # Faster R-CNN модель
         device = get_device(args.device)
         num_workers = get_num_workers(device, args.num_workers)
         
-        # Создаем датасеты
         train_dataset = LicensePlateDataset(
             root_path=Path(config.get('path', '')),
             split='train',
@@ -288,7 +229,6 @@ def train_model(model_name: str, config: Dict, args: argparse.Namespace):
             transforms=get_transform(train=False)
         )
         
-        # Создаем DataLoader
         train_loader = DataLoader(
             train_dataset,
             batch_size=args.batch_size,
@@ -305,11 +245,9 @@ def train_model(model_name: str, config: Dict, args: argparse.Namespace):
             collate_fn=collate_fn
         )
         
-        # Создаем модель
         model = create_faster_rcnn(num_classes=2)
         model = model.to(device)
         
-        # Оптимизатор и планировщик
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=args.lr,
@@ -319,7 +257,7 @@ def train_model(model_name: str, config: Dict, args: argparse.Namespace):
             optimizer, T_max=args.epochs
         )
         
-        logger.info("Запуск полного обучения Faster R-CNN...")
+        logger.info("апуск полного обучения Faster R-CNN...")
         
         model, history = train_faster_rcnn_full(
             model=model,
@@ -333,10 +271,8 @@ def train_model(model_name: str, config: Dict, args: argparse.Namespace):
             experiment_name=args.experiment_name or 'faster_rcnn'
         )
         
-        # Получаем лучший loss
         best_val_loss = min(history['val_loss']) if history['val_loss'] else float('inf')
         
-        # Сохраняем метрики в трекер
         tracker.log_metrics({
             'train_loss': history['train_loss'][-1] if history['train_loss'] else 0,
             'val_loss': history['val_loss'][-1] if history['val_loss'] else 0,
@@ -344,8 +280,7 @@ def train_model(model_name: str, config: Dict, args: argparse.Namespace):
             'total_epochs': len(history['train_loss'])
         })
         
-        # Сохраняем результаты для сравнения
-        results_dict = {
+        return {
             'best_val_loss': best_val_loss,
             'train_loss': history['train_loss'][-1] if history['train_loss'] else 0,
             'val_loss': history['val_loss'][-1] if history['val_loss'] else 0,
@@ -353,80 +288,61 @@ def train_model(model_name: str, config: Dict, args: argparse.Namespace):
             'history': history
         }
     
-    # Сохраняем артефакты
     tracker.save_artifacts()
-    
-    return results_dict
-
+    return {}
 
 def main():
-    """Главная функция"""
     args = parse_args()
-    
-    # Устанавливаем seed
     set_seed(args.seed)
     
-    # Определяем устройство
     device = get_device(args.device)
     args.device = device
     
-    # Загружаем и исправляем конфиг
     config_path = Path(args.config)
     if not config_path.exists():
-        logger.error(f"Конфиг не найден: {config_path}")
+        logger.error(f"онфиг не найден: {config_path}")
         sys.exit(1)
     
     config = fix_yaml_paths(config_path)
-    
-    # Обновляем путь к данным если указан
     if args.data_path:
         config['path'] = args.data_path
     
-    # Валидация датасета
     if not validate_dataset(config):
-        logger.error("Ошибка валидации датасета")
+        logger.error("шибка валидации датасета")
         sys.exit(1)
     
-    # Создаем директорию для сохранения
     Path(args.save_dir).mkdir(parents=True, exist_ok=True)
     
-    # Сохраняем исправленный конфиг
     fixed_config_path = Path(args.save_dir) / 'dataset_config_fixed.yaml'
     with open(fixed_config_path, 'w') as f:
         yaml.dump(config, f, default_flow_style=False)
-    logger.info(f"Исправленный конфиг сохранен: {fixed_config_path}")
+    logger.info(f"справленный конфиг сохранен: {fixed_config_path}")
     
-    # Список моделей для обучения
     if args.model == 'all':
         models = ['yolo_n', 'yolo_s', 'yolo_m', 'rtdetr', 'faster_rcnn']
     else:
         models = [args.model]
     
-    # Обучение каждой модели
     all_results = {}
     for model_name in models:
         try:
-            logger.info(f"Начинаем обучение: {model_name}")
-            
+            logger.info(f"ачинаем обучение: {model_name}")
             results = train_model(model_name, config, args)
             all_results[model_name] = results
-            logger.info(f"Модель {model_name} обучена успешно")
-            
+            logger.info(f"одель {model_name} обучена успешно")
         except Exception as e:
-            logger.error(f"Ошибка при обучении {model_name}: {e}")
+            logger.error(f"шибка при обучении {model_name}: {e}")
             import traceback
             traceback.print_exc()
             if args.debug:
                 raise
             continue
     
-    # Сравнительный анализ
     if len(all_results) > 1:
-        logger.info("СРАВНИТЕЛЬНЫЙ АНАЛИЗ МОДЕЛЕЙ")
+        logger.info("СТЬЫ  ")
         
         comparison = []
         for model_name, results in all_results.items():
-            # Извлекаем метрики в едином формате
             row = {
                 'model': model_name,
                 'mAP50': results.get('mAP50', 0),
@@ -438,14 +354,12 @@ def main():
             }
             comparison.append(row)
         
-        # Сортируем по mAP50 (если есть)
         comparison.sort(key=lambda x: x.get('mAP50', 0), reverse=True)
         
-        # Выводим таблицу
-        logger.info("Рейтинг моделей:")
+        logger.info("ейтинг моделей:")
         logger.info("-------------------------------------------------------------------------------")
         logger.info("{:<3} {:<15} {:<12} {:<15} {:<12} {:<10}".format(
-            '#', 'Модель', 'mAP@0.5', 'mAP@0.5:0.95', 'Precision', 'Recall'))
+            '#', 'одель', 'mAP@0.5', 'mAP@0.5:0.95', 'Precision', 'Recall'))
         logger.info("-------------------------------------------------------------------------------")
         
         for i, item in enumerate(comparison, 1):
@@ -454,14 +368,11 @@ def main():
                 item['precision'], item['recall']))
         
         logger.info("-------------------------------------------------------------------------------")
-        
-        # Находим лучшую модель
         best_model = comparison[0]
-        logger.info(f"Лучшая модель: {best_model['model']}")
+        logger.info(f"учшая модель: {best_model['model']}")
         logger.info(f"  mAP@0.5: {best_model['mAP50']:.4f}")
         logger.info(f"  mAP@0.5:0.95: {best_model['mAP50_95']:.4f}")
         
-        # Сохраняем сравнение в файл
         try:
             import pandas as pd
             df = pd.DataFrame(comparison)
@@ -472,10 +383,8 @@ def main():
         except ImportError:
             logger.warning("pandas не установлен, таблица не сохранена")
     
-    logger.info(f"Эксперимент завершен. Результаты сохранены в: {args.save_dir}")
-    
+    logger.info(f"ксперимент завершен. езультаты сохранены в: {args.save_dir}")
     return all_results
-
 
 if __name__ == '__main__':
     main()

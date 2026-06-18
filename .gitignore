@@ -1,20 +1,17 @@
-echo "# Jupyter notebooks
+﻿# Jupyter notebooks
 *.ipynb
 .ipynb_checkpoints/
 *.ipynb_checkpoints/
 
-# Data
+# Data (большие файлы)
 data/data/
 data/*.zip
 *.cache
 
-# Models
-*.pt
-*.pth
-*.onnx
-*.engine
-models/*.pt
-models/*.pth
+# оги
+*.log
+training.log
+error*.log
 
 # Databases
 sqlite_data/
@@ -22,24 +19,55 @@ sqlite_data/
 *.sqlite
 *.sqlite3
 
-# Checkpoints
-**/.ipynb_checkpoints/
-
-# Large files
-notebooks/rtdetr-l.pt
-notebooks/*.pt
-
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Logs
-*.log
-training.log
-
-# Outputs
+# Outputs (создаются автоматически)
 outputs/
 experiments/
-" > .gitignore
+
+# Python
+__pycache__/
+*.pyc
+venv/
+env/
+
+# Docker
+*.pid
+
+# Large files (но не модели)
+notebooks/rtdetr-l.pt
+notebooks/*.pt
+
+# Т    - они нужны для результатов!
+# runs/ - результаты обучения
+# models/ - обученные модели
+# best_models/ - лучшие модели
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Logs (кроме важных)
+results/logs/*.log
+!results/logs/.gitkeep
+
+# Models (кроме лучших)
+models/weights/pretrained/
+models/weights/trained/
+models/checkpoints/
+*.pt
+*.pth
+!outputs/best_models/*.pt
+!outputs/best_models/*.pth
+
+# Data
+data/data/
+data/*.zip
+
+# IDE
+.vscode/
+.idea/

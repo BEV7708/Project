@@ -1,73 +1,35 @@
-﻿# Jupyter notebooks
-*.ipynb
-.ipynb_checkpoints/
-*.ipynb_checkpoints/
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+*.so
+*.egg
+*.egg-info/
 
-# Data (большие файлы)
-data/data/
-data/*.zip
-*.cache
+# Данные (игнорируем только временное)
+data/data/*.cache
+data/*.cache
 
-# оги
-*.log
-training.log
-error*.log
+# Модели (через LFS)
+models/weights/pretrained/
+models/weights/trained/
+models/checkpoints/
 
-# Databases
-sqlite_data/
-*.db
-*.sqlite
-*.sqlite3
+# Результаты
+outputs/results/runs/
+outputs/results/logs/*.log
+!outputs/results/logs/.gitkeep
 
 # IDE
 .vscode/
 .idea/
 *.swp
-*.swo
 
-# Outputs (создаются автоматически)
-outputs/
-experiments/
+# Jupyter
+.ipynb_checkpoints/
 
-# Python
-__pycache__/
-*.pyc
-venv/
-env/
-
-# Docker
-*.pid
-
-# Large files (но не модели)
-notebooks/rtdetr-l.pt
-notebooks/*.pt
-
-# Т    - они нужны для результатов!
-# runs/ - результаты обучения
-# models/ - обученные модели
-# best_models/ - лучшие модели
-
-# Python cache
-__pycache__/
-*.pyc
-
-# Logs (кроме важных)
-results/logs/*.log
-!results/logs/.gitkeep
-
-# Models (кроме лучших)
-models/weights/pretrained/
-models/weights/trained/
-models/checkpoints/
-*.pt
-*.pth
-!outputs/best_models/*.pt
-!outputs/best_models/*.pth
-
-# Data
-data/data/
-data/*.zip
-
-# IDE
-.vscode/
-.idea/
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,24 @@
+{
+  "name": "faster_rcnn",
+  "params": {
+    "model": "faster_rcnn",
+    "epochs": 30,
+    "batch_size": 8,
+    "lr": 0.001,
+    "weight_decay": 0.0005,
+    "patience": 10,
+    "device": "cuda",
+    "seed": 42,
+    "config": "configs\\dataset_config.yaml",
+    "data_path": "data\\data",
+    "timestamp": "2026-06-17T19:04:19.318310"
+  },
+  "metrics": {
+    "train_loss": 0.032894485956628465,
+    "val_loss": 0.032894485956628465,
+    "best_val_loss": 0.03274990938266811,
+    "total_epochs": 30
+  },
+  "artifacts": [],
+  "timestamp": "2026-06-18T00:37:04.317768"
+}

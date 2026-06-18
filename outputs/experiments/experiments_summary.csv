@@ -1,0 +1,2 @@
+experiment,model,epochs,batch_size,lr,weight_decay,patience,device,seed,config,data_path,timestamp,train_loss,val_loss,best_val_loss,total_epochs
+faster_rcnn,faster_rcnn,30,8,0.001,0.0005,10,cuda,42,configs\dataset_config.yaml,data\data,2026-06-18T00:37:04.317768,0.032894485956628465,0.032894485956628465,0.03274990938266811,30

@@ -1,0 +1,7 @@
+{
+  "best_val_loss": 0.03274990938266811,
+  "final_train_loss": 0.032894485956628465,
+  "final_val_loss": 0.032894485956628465,
+  "total_epochs": 30,
+  "best_epoch": 28
+}

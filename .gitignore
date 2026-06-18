@@ -8,14 +8,26 @@ env/
 *.egg
 *.egg-info/
 
-# Данные (игнорируем только временное)
-data/data/*.cache
-data/*.cache
+# Данные
+data/
+*.zip
+*.tar.gz
+*.cache
 
-# Модели (через LFS)
+# Модели - игнорируем pretrained, но НЕ trained
 models/weights/pretrained/
-models/weights/trained/
 models/checkpoints/
+models/weights/trained/full_training/
+models/weights/trained/full_training_50_new_data/
+
+# НО НЕ игнорируем наши модели
+!models/weights/trained/yolo_n/
+!models/weights/trained/yolo_s/
+!models/weights/trained/yolo_m/
+!models/weights/trained/rtdetr/
+!models/weights/trained/yolo_metrics/
+!models/weights/trained/faster_rcnn/
+!models/weights/trained/all_models/
 
 # Результаты
 outputs/results/runs/

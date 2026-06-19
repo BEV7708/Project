@@ -32,27 +32,35 @@ except Exception as e:
     db = None
 
 
-def find_model_path():
-    """Поиск модели по нескольким возможным путям"""
+def find_best_model():
+    """Поиск лучшей модели (YOLOv8n)"""
     candidates = [
         "models/weights/trained/yolo_n/best.pt",
         "models/weights/trained/yolo_n/results/weights/best.pt",
-        "models/weights/trained/yolo_s/best.pt",
-        "models/weights/trained/yolo_s/results/weights/best.pt",
-        "models/weights/trained/yolo_m/best.pt",
         "models/weights/trained/all_models/yolo_n_30.pt",
-        "models/weights/trained/all_models/yolo_s_30.pt",
     ]
     for path in candidates:
         if Path(path).exists():
             return Path(path)
+    
+    # Если YOLOv8n не найден, ищем любую другую
+    fallback = [
+        "models/weights/trained/yolo_s/best.pt",
+        "models/weights/trained/yolo_m/best.pt",
+        "models/weights/trained/rtdetr/best.pt",
+    ]
+    for path in fallback:
+        if Path(path).exists():
+            print(f"Предупреждение: YOLOv8n не найден, используется {path}")
+            return Path(path)
+    
     return None
 
-MODEL_PATH = find_model_path()
+MODEL_PATH = find_best_model()
 if MODEL_PATH is None:
     raise FileNotFoundError("Модель не найдена. Проверьте пути в models/weights/trained/")
 
-CONFIDENCE_THRESHOLD = 0.5
+CONFIDENCE_THRESHOLD = 0.25
 IOU_THRESHOLD = 0.45
 MAX_IMAGE_SIZE = 1920
 
@@ -65,10 +73,10 @@ def load_model():
         if not MODEL_PATH.exists():
             raise FileNotFoundError(f"Model not found at {MODEL_PATH}")
         model = YOLO(str(MODEL_PATH))
-        print(f"Model loaded from {MODEL_PATH}")
+        print(f"Модель загружена: {MODEL_PATH}")
     return model
 
-def log_prediction(filename, num_detections, inference_time, success, error=None):
+def log_prediction(filename, num_detections, inference_time, confidence, success, error=None):
     """Логирование запроса в БД"""
     if not DB_AVAILABLE or db is None:
         return
@@ -80,7 +88,7 @@ def log_prediction(filename, num_detections, inference_time, success, error=None
             'image_path': filename,
             'image_size': '',
             'num_objects': num_detections,
-            'confidence': 0.0,
+            'confidence': confidence,
             'inference_time_ms': inference_time,
             'device': 'cuda' if torch.cuda.is_available() else 'cpu',
             'success': success,
@@ -109,6 +117,7 @@ app.add_middleware(
 async def startup_event():
     """Загрузка модели при старте"""
     load_model()
+    print(f"API запущен. Модель: {MODEL_PATH.name}")
 
 @app.get("/")
 async def root():
@@ -116,14 +125,22 @@ async def root():
         "service": "License Plate Detection API",
         "status": "running",
         "model": str(MODEL_PATH.name),
+        "model_metrics": {
+            "mAP50": 0.9919,
+            "mAP50_95": 0.8177,
+            "precision": 0.9829,
+            "recall": 0.9740,
+            "f1": 0.9784,
+            "inference_ms": 299.2,
+            "size_mb": 6.0
+        },
         "endpoints": {
-            "/predict": "POST - Detect license plates in image",
-            "/predict_batch": "POST - Batch detection",
-            "/predict_with_image": "POST - Detect with image return",
-            "/health": "GET - Health check",
-            "/stats": "GET - Statistics",
-            "/history": "GET - Request history",
-            "/compare": "GET - Compare models"
+            "/predict": "POST - Детекция номерных знаков",
+            "/predict_batch": "POST - Пакетная детекция",
+            "/predict_with_image": "POST - Детекция с возвратом изображения",
+            "/health": "GET - Проверка состояния",
+            "/stats": "GET - Статистика",
+            "/history": "GET - История запросов"
         }
     }
 
@@ -135,6 +152,7 @@ async def health_check():
         return {
             "status": "healthy",
             "model_loaded": model is not None,
+            "model_name": str(MODEL_PATH.name),
             "device": "cuda" if torch.cuda.is_available() else "cpu",
             "db_available": DB_AVAILABLE
         }
@@ -203,73 +221,6 @@ async def get_history(limit: int = 50, model_name: Optional[str] = None):
     except Exception as e:
         return {"error": str(e)}
 
-@app.get("/compare")
-async def compare_models(
-    image_file: str,
-    model_names: Optional[str] = None
-):
-    """Сравнение моделей на одном изображении"""
-    try:
-        # Поиск изображения
-        possible_paths = [
-            Path(f"data/data/test/images/{image_file}"),
-            Path(f"data/data/val/images/{image_file}"),
-            Path(f"data/data/train/images/{image_file}")
-        ]
-        
-        image_path = None
-        for path in possible_paths:
-            if path.exists():
-                image_path = path
-                break
-        
-        if image_path is None:
-            raise HTTPException(404, f"Изображение не найдено: {image_file}")
-        
-        # Список моделей для сравнения
-        if model_names:
-            names = model_names.split(',')
-        else:
-            names = ['yolo_n', 'yolo_s', 'yolo_m']
-        
-        results = {}
-        for name in names:
-            model_path = Path(f"models/weights/trained/{name}/best.pt")
-            if not model_path.exists():
-                results[name] = {"error": "Модель не найдена"}
-                continue
-            
-            try:
-                yolo_model = YOLO(str(model_path))
-                
-                start = time.time()
-                result = yolo_model(str(image_path), conf=0.25)
-                inference_time = (time.time() - start) * 1000
-                
-                detections = len(result[0].boxes) if result[0].boxes else 0
-                
-                # Получаем уверенность
-                conf = 0.0
-                if result[0].boxes:
-                    conf = float(result[0].boxes.conf[0].cpu().numpy())
-                
-                results[name] = {
-                    "num_objects": detections,
-                    "confidence": round(conf, 4),
-                    "inference_time_ms": round(inference_time, 2)
-                }
-            except Exception as e:
-                results[name] = {"error": str(e)}
-        
-        return {
-            "image": image_file,
-            "results": results
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, str(e))
-
 @app.post("/predict")
 async def predict(
     file: UploadFile = File(...),
@@ -283,7 +234,7 @@ async def predict(
     if file.content_type not in allowed_types:
         raise HTTPException(
             status_code=400, 
-            detail=f"Unsupported file type. Allowed: {allowed_types}"
+            detail=f"Неподдерживаемый формат. Разрешены: {allowed_types}"
         )
     
     start_time = time.time()
@@ -291,6 +242,7 @@ async def predict(
     success = True
     error = None
     num_detections = 0
+    avg_confidence = 0.0
     
     try:
         contents = await file.read()
@@ -298,7 +250,7 @@ async def predict(
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
         if image is None:
-            raise HTTPException(status_code=400, detail="Invalid image file")
+            raise HTTPException(status_code=400, detail="Неверный файл изображения")
         
         h, w = image.shape[:2]
         if max(h, w) > MAX_IMAGE_SIZE:
@@ -333,17 +285,22 @@ async def predict(
                     })
         
         num_detections = len(detections)
+        if num_detections > 0:
+            avg_confidence = sum(d["confidence"] for d in detections) / num_detections
+        
         inference_time = (time.time() - start_time) * 1000
         
         # Логирование в БД
-        log_prediction(filename, num_detections, inference_time, True)
+        log_prediction(filename, num_detections, inference_time, avg_confidence, True)
         
         return {
             "success": True,
             "detections": detections,
             "num_detections": num_detections,
+            "confidence": round(avg_confidence, 4),
             "inference_time_ms": round(inference_time, 2),
-            "image_size": {"width": w, "height": h}
+            "image_size": {"width": w, "height": h},
+            "model": str(MODEL_PATH.name)
         }
         
     except HTTPException:
@@ -352,7 +309,7 @@ async def predict(
         success = False
         error = str(e)
         inference_time = (time.time() - start_time) * 1000
-        log_prediction(filename, 0, inference_time, False, error)
+        log_prediction(filename, 0, inference_time, 0.0, False, error)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/predict_with_image")
@@ -378,12 +335,14 @@ async def predict_with_image(
             x1, y1, x2, y2 = det["bbox"]
             conf = det["confidence"]
             
-            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            # Зеленый прямоугольник
+            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 3)
             
-            label = f"LP {conf:.2f}"
+            # Подпись
+            label = f"Номер {conf:.2f}"
             cv2.putText(
                 image, label, (x1, y1 - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2
             )
         
         _, buffer = cv2.imencode('.jpg', image)

@@ -1,0 +1,75 @@
+{
+  "metadata": {
+    "dataset": "/home/jovyan/work/configs/dataset_config.yaml",
+    "num_test_images": 545,
+    "num_classes": 1,
+    "evaluation_date": "2026-06-19T07:13:31.984097"
+  },
+  "results": [
+    {
+      "Model": "YOLOv8n",
+      "mAP50": 0.9919039775235144,
+      "mAP50_95": 0.8177207767684924,
+      "Precision": 0.9828788598102124,
+      "Recall": 0.9740420271940667,
+      "F1": 0.978440490838727,
+      "Inference_ms": 299.19261540188904,
+      "Preprocess_ms": 4.23700822235245,
+      "Postprocess_ms": 2.137663156123861,
+      "Validation_time_sec": 266.06136679649353,
+      "Model_size_MB": 5.96
+    },
+    {
+      "Model": "YOLOv8m",
+      "mAP50": 0.9914816740280251,
+      "mAP50_95": 0.829976671355487,
+      "Precision": 0.9802425421900152,
+      "Recall": 0.9812372892224195,
+      "F1": 0.980739662967667,
+      "Inference_ms": 1651.7763018635117,
+      "Preprocess_ms": 3.318809308191902,
+      "Postprocess_ms": 3.0912291392549553,
+      "Validation_time_sec": 1302.6625125408173,
+      "Model_size_MB": 49.62
+    },
+    {
+      "Model": "YOLOv8s",
+      "mAP50": 0.9911663155278662,
+      "mAP50_95": 0.8282802388481227,
+      "Precision": 0.9839342918371454,
+      "Recall": 0.9752781211372065,
+      "F1": 0.9795870836881714,
+      "Inference_ms": 778.7753971860809,
+      "Preprocess_ms": 3.6057019674734505,
+      "Postprocess_ms": 3.863735031253284,
+      "Validation_time_sec": 623.4395160675049,
+      "Model_size_MB": 21.47
+    },
+    {
+      "Model": "RT-DETR",
+      "mAP50": 0.9872461442124029,
+      "mAP50_95": 0.832032789497182,
+      "Precision": 0.9679009738058761,
+      "Recall": 0.9690895276814944,
+      "F1": 0.968494885590293,
+      "Inference_ms": 5161.430306048241,
+      "Preprocess_ms": 4.753824106556265,
+      "Postprocess_ms": 0.11707719379699316,
+      "Validation_time_sec": 4014.351434469223,
+      "Model_size_MB": 63.16
+    },
+    {
+      "Model": "Faster R-CNN",
+      "mAP50": 0.9569120287253142,
+      "mAP50_95": 0.874526231797327,
+      "Precision": 0.9569120287253142,
+      "Recall": 0.9253472222222222,
+      "F1": 0.9408649597825766,
+      "Inference_ms": 11992.49361808147,
+      "Preprocess_ms": 0.0,
+      "Postprocess_ms": 0.0,
+      "Validation_time_sec": 6609.698136329651,
+      "Model_size_MB": 471.47
+    }
+  ]
+}

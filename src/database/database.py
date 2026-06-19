@@ -1,4 +1,4 @@
-# src/database.py
+# src/database/database.py
 import sqlite3
 import json
 from pathlib import Path

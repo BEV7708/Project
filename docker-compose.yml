@@ -86,6 +86,24 @@ services:
         limits:
           cpus: '0.5'
           memory: 512M
+  license-plate-api:
+    build: .
+    container_name: license-plate-detector
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./models:/app/models:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]  
 
 volumes:
   jupyter_data:

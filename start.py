@@ -1,55 +1,45 @@
-# start.py (с проверкой)
+# start.py
 
 import subprocess
 import time
 import webbrowser
 import sys
 import platform
-import requests
+import shutil
 
-def wait_for_service(url, timeout=30):
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        try:
-            response = requests.get(url, timeout=2)
-            if response.status_code == 200:
-                return True
-        except:
-            pass
-        time.sleep(1)
-    return False
+def get_docker_compose_cmd():
+    """Определение команды docker-compose"""
+    if shutil.which("docker-compose"):
+        return "docker-compose"
+    elif shutil.which("docker") and subprocess.run(["docker", "compose", "version"], capture_output=True).returncode == 0:
+        return "docker compose"
+    else:
+        print("Error: docker-compose not found")
+        sys.exit(1)
 
 def main():
+    compose_cmd = get_docker_compose_cmd()
+    print(f"Using: {compose_cmd}")
     print("Starting services...")
     
-    subprocess.run(["docker-compose", "up", "-d"], check=True)
+    result = subprocess.run([compose_cmd, "up", "-d"], capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        print(f"Error: {result.stderr}")
+        sys.exit(1)
     
     print("Waiting for services to start...")
+    time.sleep(5)
     
-    web_url = "http://localhost:8501"
-    api_url = "http://localhost:8000"
-    
-    print("Checking API...")
-    if wait_for_service(api_url, timeout=30):
-        print("API ready")
-    else:
-        print("API timeout")
-    
-    print("Checking Web...")
-    if wait_for_service(web_url, timeout=30):
-        print("Web ready")
-    else:
-        print("Web timeout")
-    
-    time.sleep(2)
-    
-    print(f"Opening browser: {web_url}")
-    webbrowser.open(web_url)
+    url = "http://localhost:8501"
+    print(f"Opening browser: {url}")
+    webbrowser.open(url)
     
     print("\nServices started:")
-    print(f"  API: {api_url}")
-    print(f"  Web: {web_url}")
+    print("  API: http://localhost:8000")
+    print("  Web: http://localhost:8501")
     print("  Jupyter: http://localhost:8888")
+    print("\nTo stop: make down")
 
 if __name__ == "__main__":
     main()

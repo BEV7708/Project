@@ -20,3 +20,6 @@ uvicorn>=0.23.0
 python-multipart>=0.0.6
 gdown>=4.7.0
 packaging>=23.0
+streamlit>=1.28.0
+sqlalchemy>=2.0.0
+python-dotenv>=1.0.0

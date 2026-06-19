@@ -7,7 +7,6 @@ services:
     ports:
       - "8888:8888"
     volumes:
-      # Основные директории проекта (соответствуют структуре)
       - ./notebooks:/home/jovyan/work/notebooks
       - ./src:/home/jovyan/work/src
       - ./configs:/home/jovyan/work/configs
@@ -16,17 +15,12 @@ services:
       - ./outputs:/home/jovyan/work/outputs
       - ./service:/home/jovyan/work/service
       - ./tests:/home/jovyan/work/tests
-      
-      # Конфигурационные файлы в корне
       - ./requirements.txt:/home/jovyan/work/requirements.txt
       - ./README.md:/home/jovyan/work/README.md
       - ./.gitignore:/home/jovyan/work/.gitignore
       - ./Dockerfile:/home/jovyan/work/Dockerfile
-      
-      # Дополнительные тома для удобства
       - ./downloads:/home/jovyan/downloads
       - jupyter_data:/home/jovyan/.local
-      
     environment:
       - JUPYTER_ENABLE_LAB=yes
       - GRANT_SUDO=yes
@@ -34,13 +28,11 @@ services:
       - CHOWN_HOME_OPTS=-R
       - NB_UID=1000
       - NB_GID=100
-      # Пути для проекта
       - PYTHONPATH=/home/jovyan/work/src
       - DATA_PATH=/home/jovyan/work/data
       - MODELS_PATH=/home/jovyan/work/models
       - OUTPUTS_PATH=/home/jovyan/work/outputs
       - CONFIGS_PATH=/home/jovyan/work/configs
-      
     command: >
       start-notebook.sh 
       --ip=0.0.0.0
@@ -48,12 +40,9 @@ services:
       --no-browser
       --NotebookApp.token='' 
       --NotebookApp.password=''
-      
     working_dir: /home/jovyan/work
     restart: unless-stopped
     user: root
-    
-    # Лимиты ресурсов
     deploy:
       resources:
         limits:
@@ -63,17 +52,16 @@ services:
           cpus: '0.5'
           memory: 1G
 
-  # SQLite для хранения данных экспериментов
   sqlite:
     image: nouchka/sqlite3:latest
     container_name: sqlite_db
     volumes:
       - ./data/sqlite_data:/root/db
-      - ./outputs/experiments:/root/experiments  # Для доступа к экспериментам
+      - ./outputs/experiments:/root/experiments
     environment:
       - SQLITE_DATABASE=experiments.db
     ports:
-      - "8000:8000"
+      - "8001:8000"
     command: >
       sh -c "
         mkdir -p /root/db &&
@@ -86,24 +74,58 @@ services:
         limits:
           cpus: '0.5'
           memory: 512M
+
   license-plate-api:
-    build: .
-    container_name: license-plate-detector
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: license-plate-api
     ports:
       - "8000:8000"
     volumes:
       - ./logs:/app/logs
       - ./models:/app/models:ro
+      - ./data:/app/data:ro
+      - ./service:/app/service
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
     restart: unless-stopped
+    depends_on:
+      - sqlite
     deploy:
       resources:
+        limits:
+          cpus: '1'
+          memory: 2G
         reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]  
+          cpus: '0.5'
+          memory: 1G
+
+  license-plate-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: license-plate-web
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./service:/app/service
+    environment:
+      - API_URL=http://license-plate-api:8000
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    depends_on:
+      - license-plate-api
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 512M
 
 volumes:
   jupyter_data:

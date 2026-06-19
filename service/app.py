@@ -1,4 +1,4 @@
-# app.py
+# service/app.py
 
 import sys
 from pathlib import Path
@@ -14,14 +14,16 @@ from ultralytics import YOLO
 import base64
 import time
 
+# Добавляем путь для импорта src
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
     from src.database.database import get_db
     db = get_db()
     DB_AVAILABLE = True
+    print("Database connected")
 except Exception as e:
-    print(f"DB error: {e}")
+    print(f"Database error: {e}")
     DB_AVAILABLE = False
     db = None
 
@@ -29,13 +31,16 @@ except Exception as e:
 def find_model_path():
     candidates = [
         "models/weights/trained/yolo_n/best.pt",
-        "models/weights/trained/yolo_n/results/weights/best.pt",
-        "models/weights/trained/all_models/yolo_n_30.pt",
+        "../models/weights/trained/yolo_n/best.pt",
         "models/weights/trained/yolo_s/best.pt",
+        "../models/weights/trained/yolo_s/best.pt",
+        "models/weights/trained/yolo_m/best.pt",
+        "../models/weights/trained/yolo_m/best.pt",
     ]
     for path in candidates:
-        if Path(path).exists():
-            return Path(path)
+        p = Path(path)
+        if p.exists():
+            return p
     return None
 
 
@@ -97,7 +102,8 @@ async def root():
     return {
         "service": "License Plate Detection",
         "model": str(MODEL_PATH.name),
-        "endpoints": ["/predict", "/predict_batch", "/predict_with_image", "/health", "/stats", "/history"]
+        "db_available": DB_AVAILABLE,
+        "endpoints": ["/predict", "/predict_with_image", "/health", "/stats", "/history"]
     }
 
 
@@ -118,9 +124,8 @@ async def health_check():
 @app.get("/stats")
 async def get_stats():
     if not DB_AVAILABLE or db is None:
-        return {"error": "DB not available"}
+        return {"error": "Database not available"}
     try:
-        import pandas as pd
         df = db.get_predictions(limit=1000)
         if df.empty:
             return {"total_requests": 0, "successful": 0, "failed": 0, "avg_inference_ms": 0}
@@ -137,7 +142,7 @@ async def get_stats():
 @app.get("/history")
 async def get_history(limit: int = 50):
     if not DB_AVAILABLE or db is None:
-        return {"error": "DB not available"}
+        return {"error": "Database not available"}
     try:
         df = db.get_predictions(limit=limit)
         if df.empty:
@@ -210,8 +215,6 @@ async def predict(
             "image_size": {"width": w, "height": h}
         }
 
-    except HTTPException:
-        raise
     except Exception as e:
         inference_time = (time.time() - start_time) * 1000
         log_prediction(filename, 0, inference_time, 0.0, False, str(e))
@@ -250,21 +253,5 @@ async def predict_with_image(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/predict_batch")
-async def predict_batch(
-    files: list[UploadFile] = File(...),
-    confidence: Optional[float] = CONFIDENCE_THRESHOLD
-):
-    results = []
-    for file in files:
-        try:
-            result = await predict(file, confidence)
-            results.append({"filename": file.filename, "result": result})
-        except Exception as e:
-            results.append({"filename": file.filename, "error": str(e)})
-
-    return {"success": True, "total": len(files), "results": results}
-
-
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False, workers=1)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)

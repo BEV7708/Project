@@ -1,0 +1,19 @@
+{
+  "model": "RT-DETR",
+  "epochs": 30,
+  "batch_size": 4,
+  "learning_rate": 0.001,
+"imgsz": 640,
+"optimizer": "AdamW",
+  "mAP50": 0.9688,
+  "mAP50_95": 0.8384,
+  "precision": 0.9738,
+  "recall": 0.9782,
+  "f1_score": 0.9760,
+  "status": "completed",
+  "date": "2026-06-19",
+  "time_start": "18:07:02",
+  "time_end": "01:43:28",
+  "duration": "7h 36m",
+  "data": "6151 images"
+}

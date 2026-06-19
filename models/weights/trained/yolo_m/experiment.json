@@ -1,0 +1,19 @@
+{
+  "model": "YOLOv8m",
+  "epochs": 30,
+  "batch_size": 16,
+  "learning_rate": 0.001,
+  "imgsz": 640,
+  "optimizer": "AdamW",
+  "mAP50": 0.8588,
+  "mAP50_95": 0.8356,
+  "precision": 0.9823,
+  "recall": 0.9812,
+  "f1_score": 0.9817,
+  "status": "completed",
+  "date": "2026-06-17",
+  "time_start": "12:57:03",
+  "time_end": "15:17:01",
+  "duration": "2h 20m",
+  "data": "6151 images"
+}

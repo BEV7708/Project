@@ -1,9 +1,9 @@
 # service/app.py
 
+import os
 import sys
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
 import uvicorn
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,40 +13,122 @@ import torch
 from ultralytics import YOLO
 import base64
 import time
+from datetime import datetime
+import sqlite3
 
-# Добавляем путь для импорта src
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Корень проекта
+PROJECT_ROOT = Path(__file__).parent.parent
 
-try:
-    from src.database.database import get_db
-    db = get_db()
-    DB_AVAILABLE = True
-    print("Database connected")
-except Exception as e:
-    print(f"Database error: {e}")
-    DB_AVAILABLE = False
-    db = None
+# Создаем директорию для БД
+DB_PATH = PROJECT_ROOT / "data" / "sqlite_data" / "experiments.db"
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_name TEXT,
+            image_path TEXT,
+            num_objects INTEGER,
+            confidence REAL,
+            inference_time_ms REAL,
+            device TEXT,
+            success BOOLEAN,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+    print("База данных инициализирована")
+
+def log_prediction(data):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO predictions (model_name, image_path, num_objects, confidence, inference_time_ms, device, success)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            data.get('model_name'),
+            data.get('image_path'),
+            data.get('num_objects', 0),
+            data.get('confidence', 0.0),
+            data.get('inference_time_ms', 0.0),
+            data.get('device', 'cpu'),
+            data.get('success', True)
+        ))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка логирования: {e}")
+        return False
+
+def get_predictions(limit=100):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('SELECT * FROM predictions ORDER BY id DESC LIMIT ?', (limit,))
+        rows = c.fetchall()
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"Ошибка получения данных: {e}")
+        return []
+
+def get_stats():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('SELECT COUNT(*) FROM predictions')
+        total = c.fetchone()[0]
+        c.execute('SELECT COUNT(*) FROM predictions WHERE success = 1')
+        successful = c.fetchone()[0]
+        c.execute('SELECT AVG(inference_time_ms) FROM predictions')
+        avg_time = c.fetchone()[0] or 0
+        conn.close()
+        return {
+            'total_requests': total,
+            'successful': successful,
+            'failed': total - successful,
+            'avg_inference_ms': avg_time
+        }
+    except Exception as e:
+        print(f"Ошибка получения статистики: {e}")
+        return {'total_requests': 0, 'successful': 0, 'failed': 0, 'avg_inference_ms': 0}
+
+# Инициализация БД
+init_db()
+DB_AVAILABLE = True
+print("База данных доступна")
 
 def find_model_path():
     candidates = [
+        PROJECT_ROOT / "models/weights/trained/yolo_n/best.pt",
+        PROJECT_ROOT / "models/weights/trained/yolo_n/results/weights/best.pt",
+        PROJECT_ROOT / "models/weights/trained/yolo_s/best.pt",
+        PROJECT_ROOT / "models/weights/trained/all_models/yolo_n_30.pt",
         "models/weights/trained/yolo_n/best.pt",
-        "../models/weights/trained/yolo_n/best.pt",
-        "models/weights/trained/yolo_s/best.pt",
-        "../models/weights/trained/yolo_s/best.pt",
-        "models/weights/trained/yolo_m/best.pt",
-        "../models/weights/trained/yolo_m/best.pt",
     ]
     for path in candidates:
-        p = Path(path)
-        if p.exists():
-            return p
+        if Path(path).exists():
+            return Path(path)
     return None
-
 
 MODEL_PATH = find_model_path()
 if MODEL_PATH is None:
-    raise FileNotFoundError("Model not found")
+    # Попробуем найти модель в текущей директории
+    for path in Path(".").glob("**/best.pt"):
+        if "yolo" in str(path).lower():
+            MODEL_PATH = path
+            break
+
+if MODEL_PATH is None:
+    raise FileNotFoundError("Модель не найдена. Проверьте пути в models/weights/trained/")
+
+print(f"Используется модель: {MODEL_PATH}")
 
 CONFIDENCE_THRESHOLD = 0.25
 IOU_THRESHOLD = 0.45
@@ -58,31 +140,10 @@ def load_model():
     global model
     if model is None:
         model = YOLO(str(MODEL_PATH))
-        print(f"Model loaded: {MODEL_PATH}")
+        print(f"Model loaded from {MODEL_PATH}")
     return model
 
-
-def log_prediction(filename, num_detections, inference_time, confidence, success, error=None):
-    if not DB_AVAILABLE or db is None:
-        return
-    try:
-        db.log_prediction({
-            'model_name': str(MODEL_PATH.stem),
-            'model_type': 'yolo',
-            'image_path': filename,
-            'image_size': '',
-            'num_objects': num_detections,
-            'confidence': confidence,
-            'inference_time_ms': inference_time,
-            'device': 'cuda' if torch.cuda.is_available() else 'cpu',
-            'success': success,
-            'error_message': error
-        })
-    except Exception as e:
-        print(f"Log error: {e}")
-
-
-app = FastAPI()
+app = FastAPI(title="License Plate Detection API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -95,66 +156,41 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     load_model()
-
-
-@app.get("/")
-async def root():
-    return {
-        "service": "License Plate Detection",
-        "model": str(MODEL_PATH.name),
-        "db_available": DB_AVAILABLE,
-        "endpoints": ["/predict", "/predict_with_image", "/health", "/stats", "/history"]
-    }
-
+    print(f"Сервис запущен. Модель: {MODEL_PATH.name}")
+    print(f"База данных: ДОСТУПНА")
 
 @app.get("/health")
 async def health_check():
-    try:
-        load_model()
-        return {
-            "status": "healthy",
-            "model_loaded": model is not None,
-            "device": "cuda" if torch.cuda.is_available() else "cpu",
-            "db_available": DB_AVAILABLE
-        }
-    except Exception as e:
-        return {"status": "unhealthy", "error": str(e)}
-
+    return {
+        "status": "healthy",
+        "model_loaded": model is not None,
+        "model_name": str(MODEL_PATH.name),
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "db_available": DB_AVAILABLE,
+        "confidence_threshold": CONFIDENCE_THRESHOLD
+    }
 
 @app.get("/stats")
-async def get_stats():
-    if not DB_AVAILABLE or db is None:
-        return {"error": "Database not available"}
-    try:
-        df = db.get_predictions(limit=1000)
-        if df.empty:
-            return {"total_requests": 0, "successful": 0, "failed": 0, "avg_inference_ms": 0}
-        return {
-            "total_requests": len(df),
-            "successful": int(df['success'].sum()) if 'success' in df else 0,
-            "failed": len(df) - int(df['success'].sum()) if 'success' in df else 0,
-            "avg_inference_ms": float(df['inference_time_ms'].mean()) if not df.empty else 0
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
+async def get_stats_endpoint():
+    return get_stats()
 
 @app.get("/history")
-async def get_history(limit: int = 50):
-    if not DB_AVAILABLE or db is None:
-        return {"error": "Database not available"}
-    try:
-        df = db.get_predictions(limit=limit)
-        if df.empty:
-            return {"total": 0, "records": []}
-        records = df.to_dict('records')
-        for record in records:
-            if 'created_at' in record and hasattr(record['created_at'], 'isoformat'):
-                record['created_at'] = record['created_at'].isoformat()
-        return {"total": len(records), "records": records}
-    except Exception as e:
-        return {"error": str(e)}
-
+async def get_history_endpoint(limit: int = 50):
+    rows = get_predictions(limit)
+    records = []
+    for row in rows:
+        records.append({
+            'id': row[0],
+            'model_name': row[1],
+            'image_path': row[2],
+            'num_objects': row[3],
+            'confidence': row[4],
+            'inference_time_ms': row[5],
+            'device': row[6],
+            'success': row[7],
+            'created_at': row[8]
+        })
+    return {"total": len(records), "records": records}
 
 @app.post("/predict")
 async def predict(
@@ -162,96 +198,98 @@ async def predict(
     confidence: Optional[float] = CONFIDENCE_THRESHOLD,
     iou: Optional[float] = IOU_THRESHOLD
 ):
-    allowed_types = ["image/jpeg", "image/png", "image/jpg"]
-    if file.content_type not in allowed_types:
-        raise HTTPException(status_code=400, detail="Unsupported file type")
-
     start_time = time.time()
     filename = file.filename or "unknown"
-
+    
     try:
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
+        
         if image is None:
-            raise HTTPException(status_code=400, detail="Invalid image")
-
+            raise HTTPException(400, "Invalid image")
+        
         h, w = image.shape[:2]
         if max(h, w) > MAX_IMAGE_SIZE:
             scale = MAX_IMAGE_SIZE / max(h, w)
-            image = cv2.resize(image, (int(w * scale), int(h * scale)))
-
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            image = cv2.resize(image, (new_w, new_h))
+        
         model = load_model()
         results = model(image, conf=confidence, iou=iou, verbose=False)
-
+        
         detections = []
-        if results and len(results) > 0:
-            boxes = results[0].boxes
-            if boxes is not None and len(boxes) > 0:
-                for box in boxes:
-                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-                    conf = float(box.conf[0].cpu().numpy())
-                    cls = int(box.cls[0].cpu().numpy())
-                    detections.append({
-                        "bbox": [int(x1), int(y1), int(x2), int(y2)],
-                        "confidence": round(conf, 4),
-                        "class": cls,
-                        "class_name": "license_plate"
-                    })
-
+        if results and len(results) > 0 and results[0].boxes:
+            for box in results[0].boxes:
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+                conf = float(box.conf[0].cpu().numpy())
+                detections.append({
+                    "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                    "confidence": round(conf, 4)
+                })
+        
         num_detections = len(detections)
-        avg_confidence = sum(d['confidence'] for d in detections) / num_detections if num_detections > 0 else 0
+        avg_confidence = sum(d['confidence'] for d in detections) / num_detections if detections else 0
         inference_time = (time.time() - start_time) * 1000
-
-        log_prediction(filename, num_detections, inference_time, avg_confidence, True)
-
+        
+        # Логируем в БД
+        log_prediction({
+            'model_name': str(MODEL_PATH.stem),
+            'image_path': filename,
+            'num_objects': num_detections,
+            'confidence': avg_confidence,
+            'inference_time_ms': inference_time,
+            'device': 'cpu',
+            'success': True
+        })
+        
         return {
             "success": True,
             "detections": detections,
             "num_detections": num_detections,
             "avg_confidence": round(avg_confidence, 4),
             "inference_time_ms": round(inference_time, 2),
-            "image_size": {"width": w, "height": h}
+            "image_size": {"width": w, "height": h},
+            "model": str(MODEL_PATH.name)
         }
-
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        inference_time = (time.time() - start_time) * 1000
-        log_prediction(filename, 0, inference_time, 0.0, False, str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
+        # Логируем ошибку
+        log_prediction({
+            'model_name': str(MODEL_PATH.stem),
+            'image_path': filename,
+            'num_objects': 0,
+            'confidence': 0.0,
+            'inference_time_ms': (time.time() - start_time) * 1000,
+            'device': 'cpu',
+            'success': False
+        })
+        raise HTTPException(500, str(e))
 
 @app.post("/predict_with_image")
-async def predict_with_image(
-    file: UploadFile = File(...),
-    confidence: Optional[float] = CONFIDENCE_THRESHOLD
-):
-    try:
-        result = await predict(file, confidence)
-
-        if not result["success"] or result["num_detections"] == 0:
-            return result
-
-        await file.seek(0)
-        contents = await file.read()
-        nparr = np.frombuffer(contents, np.uint8)
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-        for det in result["detections"]:
-            x1, y1, x2, y2 = det["bbox"]
-            conf = det["confidence"]
-            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(image, f"LP {conf:.2f}", (x1, y1 - 10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-        _, buffer = cv2.imencode('.jpg', image)
-        result["image_base64"] = base64.b64encode(buffer).decode('utf-8')
-
+async def predict_with_image(file: UploadFile = File(...)):
+    result = await predict(file)
+    if result["num_detections"] == 0:
         return result
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+    
+    await file.seek(0)
+    contents = await file.read()
+    nparr = np.frombuffer(contents, np.uint8)
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
+    for det in result["detections"]:
+        x1, y1, x2, y2 = det["bbox"]
+        conf = det["confidence"]
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(image, f"LP {conf:.2f}", (x1, y1-10),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    
+    _, buffer = cv2.imencode('.jpg', image)
+    result["image_base64"] = base64.b64encode(buffer).decode('utf-8')
+    return result
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)

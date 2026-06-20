@@ -1,75 +1,121 @@
-# License Plate Detection - Сравнение архитектур
+# License Plate Detection - Сравнительный анализ архитектур
 
-## 📊 Результаты
+## Описание проекта
 
-| Модель | Эпохи | mAP@0.5 | mAP@0.5:0.95 | Precision | Recall | Размер |
-|--------|-------|---------|--------------|-----------|--------|--------|
-| YOLOv8n | 30 | 0.85 | 0.72 | 0.88 | 0.82 | 5.96 MB |
-| YOLOv8s | 30 | 0.87 | 0.74 | 0.89 | 0.84 | 21.47 MB |
-| YOLOv8m | 30 | 0.89 | 0.76 | 0.91 | 0.86 | 49.62 MB |
-| RT-DETR | 30 | 0.88 | 0.75 | 0.90 | 0.85 | 63.14 MB |
-| Faster R-CNN | 30 | - | - | - | - | 494 MB |
+Проект посвящен сравнительному анализу архитектур нейронных сетей для детекции автомобильных номерных знаков. В рамках работы проведено обучение и оценка пяти моделей: YOLOv8n, YOLOv8s, YOLOv8m, RT-DETR и Faster R-CNN. Разработан сервис для детекции номерных знаков с веб-интерфейсом.
 
-## 🚀 Запуск
+## Демонстрация работы
 
-### Установка
-```bash
-pip install -r requirements.txt
-python src/cli/train.py --model all --config configs/dataset_config.yaml --epochs 30
-python service/app.py
-# или
-docker-compose up
-.
-├── configs/          # Конфигурации
-├── data/             # Данные
-├── notebooks/        # Jupyter ноутбуки
-├── src/              # Исходный код
-├── service/          # API сервис
-├── models/           # Описание и веса моделей
-├── outputs/          # Результаты
-├── tests/            # Тесты
-└── Dockerfile
-📝 Примечания
+![Демонстрация работы сервиса](demo.gif)
 
-    GPU: Tesla V100-SXM2-16GB
+## Результаты экспериментов
 
-    Данные: 20505 train, 2563 val, 2564 test
+| Модель | mAP@0.5 | mAP@0.5:0.95 | Precision | Recall | F1 | Время (мс) | Размер (МБ) |
+|--------|---------|--------------|-----------|--------|-----|------------|-------------|
+| YOLOv8n | 0.992 | 0.818 | 0.983 | 0.974 | 0.978 | 299.2 | 6.0 |
+| YOLOv8s | 0.991 | 0.828 | 0.984 | 0.975 | 0.980 | 778.8 | 21.5 |
+| YOLOv8m | 0.991 | 0.830 | 0.980 | 0.981 | 0.981 | 1651.8 | 49.6 |
+| RT-DETR | 0.987 | 0.832 | 0.968 | 0.969 | 0.968 | 5161.4 | 63.2 |
+| Faster R-CNN | 0.957 | 0.875 | 0.957 | 0.925 | 0.941 | 11992.5 | 471.5 |
 
-    Размер изображений: 640x640
-    EOF
+### Выводы
 
-## Финальный скрипт
+- YOLOv8n выбрана как оптимальная модель по соотношению точности и скорости
+- Прирост точности у более тяжелых моделей незначителен (менее 1%)
+- YOLOv8n в 5 раз быстрее YOLOv8s и в 40 раз быстрее Faster R-CNN
 
-```bash
-#!/bin/bash
-# final_fix.sh
+## Структура проекта
+project/
+├── configs/ # Конфигурационные файлы
+│ └── dataset_config.yaml
+├── data/ # Данные
+│ ├── data/ # Датасет (train, val, test)
+│ └── sqlite_data/ # База данных SQLite
+├── models/ # Модели
+│ ├── weights/
+│ │ ├── pretrained/ # Предобученные веса
+│ │ └── trained/ # Обученные модели
+│ └── README.md
+├── notebooks/ # Jupyter ноутбуки
+│ └── model_analysis.ipynb
+├── outputs/ # Результаты
+│ ├── results/ # Метрики и графики
+│ └── experiments/ # Логи экспериментов
+├── service/ # Сервисная часть
+│ ├── app.py # FastAPI сервер
+│ └── web_app.py # Streamlit интерфейс
+├── src/ # Исходный код
+│ ├── cli/ # CLI утилиты
+│ ├── data/ # Работа с данными
+│ ├── database/ # Работа с БД
+│ ├── eval/ # Оценка моделей
+│ ├── models/ # Архитектуры моделей
+│ ├── train/ # Обучение
+│ └── utils/ # Вспомогательные функции
+├── tests/ # Тесты
+│ ├── smoke_test.py
+│ └── test_client.py
+├── .dockerignore
+├── .gitignore
+├── docker-compose.yml
+├── Dockerfile
+├── requirements.txt
+└── README.md
 
-cd ~/Project
+## Установка и запуск
 
-echo "=== Финальная доработка структуры ==="
+### Локальный запуск
 
-# 1. Удаляем docker/
-rm -rf docker
+# Запуск Docker
+docker compose up -d
 
-# 2. Перемещаем experiments/ в outputs/
-mkdir -p outputs/experiments
-mv experiments/* outputs/experiments/ 2>/dev/null
-rmdir experiments 2>/dev/null
+# Запуск API сервера
+cd service
+python app.py
 
-# 3. Перемещаем results/ в outputs/
-mkdir -p outputs/results
-mv results/* outputs/results/ 2>/dev/null
-rmdir results 2>/dev/null
+Метод	Эндпоинт	Описание
+GET	/	Информация о сервисе
+GET	/health	Проверка состояния
+GET	/stats	Статистика запросов
+GET	/history	История запросов
+POST	/predict	Детекция на одном изображении
+POST	/predict_batch	Пакетная детекция
+POST	/predict_with_image	Детекция с возвратом изображения
 
-# 4. Создаём README в models/
-cat > models/README.md << 'EOF'
-# Модели
+# Smoke test (проверка API)
+python tests/smoke_test.py
 
-## Предобученные веса
-- `weights/pretrained/` - скачиваются автоматически
+# Тестовый клиент
+python tests/test_client.py
 
-## Обученные модели
-- `weights/trained/` - результаты обучения (30 эпох)
 
-## Лучшие модели
-- `outputs/best_models/` - лучшие модели для использования
+Метод	Эндпоинт	Описание
+GET	/	Информация о сервисе
+GET	/health	Проверка состояния
+GET	/stats	Статистика запросов
+GET	/history	История запросов
+POST	/predict	Детекция на одном изображении
+POST	/predict_batch	Пакетная детекция
+POST	/predict_with_image	Детекция с возвратом изображения
+
+# Smoke test (проверка API)
+python tests/smoke_test.py
+
+# Тестовый клиент
+python tests/test_client.py
+
+Основные зависимости
+
+    PyTorch, torchvision
+
+    Ultralytics YOLO
+
+    FastAPI, Uvicorn
+
+    Streamlit
+
+    OpenCV, Pillow
+
+    NumPy, Pandas
+
+    SQLite

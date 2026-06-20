@@ -12,15 +12,11 @@ logger = logging.getLogger(__name__)
 class ExperimentDatabase:
     
     def __init__(self, db_path: Path = None):
-        try:
-            if db_path is None:
-                db_path = Path("data/sqlite_data/experiments.db")
-            self.db_path = db_path
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._init_database()
-        except Exception as e:
-            logger.error(f"Не удалось инициализировать БД: {e}")
-            raise
+        if db_path is None:
+            db_path = Path("data/sqlite_data/experiments.db")
+        self.db_path = db_path
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_database()
     
     def _init_database(self):
         with sqlite3.connect(self.db_path) as conn:
